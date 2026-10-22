@@ -92,6 +92,8 @@ function NewTaskForm({
         setResponse(result.schedule);
       }
     } catch (err) {
+      // 失败后清掉上一次的日程，避免旧结果被当成"本次"生成的。
+      setResponse(null);
       const statusCode =
         err && typeof err === "object" && "statusCode" in err
           ? err.statusCode

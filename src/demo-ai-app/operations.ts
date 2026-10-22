@@ -27,16 +27,21 @@ export type GeneratePlanResult = {
   creditsRemaining: number;
 };
 
-/** 退回一次预留。退补失败不重试，只记录，避免把已失败的请求变成无限重试。 */
-async function refundCredit(userId: string) {
+/**
+ * 退回一次预留。退补失败不重试，避免把已失败的请求变成无限重试。
+ * 返回是否真的退成功：调用方据此决定能不能对用户说"未扣除额度"。
+ */
+async function refundCredit(userId: string): Promise<boolean> {
   try {
     await prisma.user.update({
       where: { id: userId },
       data: { credits: { increment: 1 } },
     });
     console.log(JSON.stringify({ event: "quota.refunded", userId }));
+    return true;
   } catch (err) {
     console.error(JSON.stringify({ event: "quota.refund_failed", userId }), err);
+    return false;
   }
 }
 
@@ -81,7 +86,14 @@ export const generatePlan: GeneratePlan<
     generatedSchedule = await generateMockSchedule(tasks, hours);
   } catch (err) {
     console.error(JSON.stringify({ event: "generate_plan.provider_failed" }), err);
-    await refundCredit(userId);
+    const refunded = await refundCredit(userId);
+    if (!refunded) {
+      // 退补本身失败：额度可能已被扣且没退回来，此时不能说"未扣除额度"。
+      throw new HttpError(
+        500,
+        "生成失败，且额度状态待确认：请刷新页面查看剩余额度后再决定是否重试",
+      );
+    }
     throw new HttpError(502, "生成失败：本次未扣除额度，可直接重试");
   }
 
@@ -94,7 +106,13 @@ export const generatePlan: GeneratePlan<
     });
   } catch (err) {
     console.error(JSON.stringify({ event: "generate_plan.save_failed" }), err);
-    await refundCredit(userId);
+    const refunded = await refundCredit(userId);
+    if (!refunded) {
+      throw new HttpError(
+        500,
+        "保存日程失败，且额度状态待确认：请刷新页面查看剩余额度后再决定是否重试",
+      );
+    }
     throw new HttpError(500, "保存日程失败：本次未扣除额度，可直接重试");
   }
 
