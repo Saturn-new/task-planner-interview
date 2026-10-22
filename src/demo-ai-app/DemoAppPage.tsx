@@ -68,7 +68,8 @@ function NewTaskForm({
   const { data: tasks, isLoading: isTasksLoading } =
     useQuery(getAllTasksByUser);
   const { data: credits, refetch: refetchCredits } = useQuery(getMyCredits);
-  const isOutOfCredits = credits === 0;
+  // 余额还没拉到时不要禁用；<= 0 覆盖历史数据里可能出现的负数
+  const isOutOfCredits = credits !== undefined && credits <= 0;
 
   const handleSubmit = async () => {
     try {
